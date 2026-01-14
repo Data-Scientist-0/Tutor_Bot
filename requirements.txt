@@ -3,3 +3,4 @@ google-genai
 gtts
 speechrecognition
 pydub
+python-dotenv

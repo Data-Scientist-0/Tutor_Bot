@@ -7,12 +7,19 @@ from pydub import AudioSegment
 import threading
 import time
 import base64
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # 1. SETUP - Using the latest Gemini model
-API_KEY = "AIzaSyBu7bYNEdyfMR9-dqJtiBkWB0izcQqOFQM"
+API_KEY = os.getenv("API_KEY")
+if not API_KEY:
+    st.error("API_KEY not found in .env file. Please check your .env file.")
+    st.stop()
 client = genai.Client(api_key=API_KEY)
 
-# Use 'gemini-1.5-flash' for the best performance
+# Use 'gemini-2.5-flash' for the best performance
 MODEL_ID = "gemini-2.5-flash"
 
 TEACHER_PROMPT = """
@@ -47,12 +54,14 @@ def transcribe_audio(audio_file):
         st.error(f"Transcription failed: {str(e)}")
         return ""
 
-def tutor_chat(audio_input, text_input, history):
+def tutor_chat(audio_input, text_input, history, language):
     try:
+        # Get dynamic prompt based on language
+        prompt = get_teacher_prompt(language)
         # Rebuild history for Gemini API
-        contents = []
+        contents = [{"role": "model", "parts": [{"text": prompt}]}]
         for msg in history:
-            role = "model" if msg["role"] == "assistant" else msg["role"]
+            role = "model" if msg["role"] == "assistant" else "user"
             contents.append({"role": role, "parts": [{"text": msg["content"]}]})
 
         # Process Input
@@ -68,10 +77,11 @@ def tutor_chat(audio_input, text_input, history):
             contents.append({"role": "user", "parts": [{"text": user_text}]})
             user_display = user_text
 
-        response = client.models.generate_content(model=MODEL_ID, contents=contents, config={"system_instruction": TEACHER_PROMPT})
+        response = client.models.generate_content(model=MODEL_ID, contents=contents)
 
         # Generate Voice Output
-        tts = gTTS(text=response.text, lang='en')
+        lang_code = language_options.get(language, 'en')
+        tts = gTTS(text=response.text, lang=lang_code)
         tts.save("response.mp3")
 
         # Append to history
@@ -89,7 +99,7 @@ def get_base64_image(image_path):
     return f"data:image/jpeg;base64,{encoded_string}"
 
 # UI Setup
-st.title("🎓 Layan's Gemini 3 Expert Tutor")
+st.title("🎓 Layan's personel Expert Tutor")
 
 # Set background image
 bg_image = get_base64_image("image.jpg")
@@ -115,6 +125,27 @@ st.markdown(
 if "history" not in st.session_state:
     st.session_state.history = []
 
+if "language" not in st.session_state:
+    st.session_state.language = "English"
+
+# Language selector
+language_options = {"English": "en", "Arabic": "ar"}
+selected_language = st.sidebar.selectbox("Select Language", list(language_options.keys()), index=list(language_options.keys()).index(st.session_state.language))
+st.session_state.language = selected_language
+
+def get_teacher_prompt(language):
+    base_prompt = """
+Role: You are Layan's personal, expert tutor.
+Goal: Efficient, baby-step learning with no wasted time.
+Rules:
+- Explain 1 Concept (1 sentence) + 1 Analogy + 1 Example.
+- ALWAYS end with a Task for Layan.
+- If Layan sends audio, listen carefully to her tone and understanding.
+"""
+    if language == "Arabic":
+        return base_prompt + "\nRespond in Arabic."
+    return base_prompt
+
 # Sidebar for audio features
 with st.sidebar:
     st.header("Audio Features")
@@ -134,10 +165,10 @@ with st.sidebar:
             st.warning("Please upload or record an audio file to transcribe.")
     if st.button("Send Audio to Teacher"):
         if audio_in:
-            st.session_state.history, audio_out = tutor_chat(audio_in, "", st.session_state.history)
+            st.session_state.history, audio_out = tutor_chat(audio_in, "", st.session_state.history, st.session_state.language)
             st.rerun()
         elif recorded_audio:
-            st.session_state.history, audio_out = tutor_chat(recorded_audio, "", st.session_state.history)
+            st.session_state.history, audio_out = tutor_chat(recorded_audio, "", st.session_state.history, st.session_state.language)
             st.rerun()
         else:
             st.warning("Please upload or record an audio file.")
@@ -153,7 +184,7 @@ for msg in st.session_state.history:
 # Chat input at bottom
 text_input = st.chat_input("Type your message...")
 if text_input:
-    st.session_state.history, audio_out = tutor_chat("", text_input, st.session_state.history)
+    st.session_state.history, audio_out = tutor_chat("", text_input, st.session_state.history, st.session_state.language)
     st.rerun()
 
 # Audio output
